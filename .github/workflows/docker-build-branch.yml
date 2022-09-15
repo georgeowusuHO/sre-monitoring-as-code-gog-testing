@@ -98,8 +98,8 @@ jobs:
       - name: Post failure to Slack channel
         id: slack
         uses: slackapi/slack-github-action@v1.22.0
-#        if: ${{ always() }}
-        if: ${{ failure() }}
+        if: ${{ always() }}
+#        if: ${{ failure() }}
         with:
           channel-id: ${{ secrets.SLACK_CHANNEL_ID }}
 #          channel-id: "#sas-sre-pull-requests"
@@ -108,7 +108,7 @@ jobs:
 #          slack-message: "GitHub build result: ${{ job.status }}\n${{ github.event.pull_request.html_url || github.event.head_commit.url }}"
           payload: |
             {
-             "text": "GitHub Action build result: ${{ job.status }}\n${{ github.event.pull_request.html_url || github.event.head_commit.url }}",
+             "text": "GitHub Action build result: ${{ job.status }}\nRepo:${{github.repository}}\nOriginating PR:${{ github.event.pull_request.html_url || github.event.head_commit.url }}",
              "blocks": [
                {
                  "type": "section",
