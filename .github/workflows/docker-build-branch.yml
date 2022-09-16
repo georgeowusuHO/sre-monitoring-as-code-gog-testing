@@ -93,7 +93,7 @@ jobs:
       - name: Push image to GitHub Container Registry
         run: docker push ${{ steps.meta.outputs.tags }}
         
-# GOG ADDED     
+# GOG ADDED      
         
       - name: Post failure to Slack channel
         id: slack
