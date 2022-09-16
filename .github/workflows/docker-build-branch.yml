@@ -106,7 +106,6 @@ jobs:
 #          slack-message: "GitHub build result: ${{ job.status }}\n${{ github.event.pull_request.html_url || github.event.head_commit.url }}"          
           payload: |
             {
-             # "text": "GitHub Action build result: ${{ job.status }}\nRun: ${{github.server_url}}/${{github.repository}}/actions/runs/${{github.run_id}}\nOriginating PR:${{ github.event.pull_request.html_url || github.event.head_commit.url }}",
              "text": "GitHub Action build result: ${{ job.status }}\n${{ github.event.pull_request.html_url || github.event.head_commit.url }}",
              "blocks": [
                {
@@ -114,8 +113,7 @@ jobs:
                  "text": {
                    "type": "mrkdwn",
                    "text": "GitHub Action build result: ${{ job.status }}\n${{ github.event.pull_request.html_url || github.event.head_commit.url }}"
-                 #  "text": "GitHub Action build result: ${{ job.status }}\nRun: ${{github.server_url}}/${{github.repository}}/actions/runs/${{github.run_id}}\nOriginating PR:${{ github.event.pull_request.html_url || github.event.head_commit.url }}"
-                 }
+                  }
                }
              ]
             }
