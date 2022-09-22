@@ -101,7 +101,8 @@ jobs:
         if: ${{ always() }}
 #        if: ${{ failure() }}
         with:
-          channel-id: ${{ secrets.SLACK_CHANNEL_ID }}
+#          channel-id: ${{ secrets.SLACK_CHANNEL_ID }}
+          channel-id: "@GOG_CHANNEL_DOESNT_EXIST"
 #          slack-message: "GitHub Action failure: ${{github.repository}}\nRun: ${{github.server_url}}/${{github.repository}}/actions/runs/${{github.run_id}}\nOriginating PR: ${{ github.event.pull_request.html_url || github.event.head_commit.url }}"
 #          slack-message: "GitHub build result: ${{ job.status }}\n${{ github.event.pull_request.html_url || github.event.head_commit.url }}"
           payload: |
