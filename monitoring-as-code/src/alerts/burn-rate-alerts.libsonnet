@@ -12,11 +12,11 @@ local macConfig = import '../mac-config.libsonnet';
 local getSeverity(errorBudgetBurnWindow, config, sliSpec) =
   // If maxAlertSeverity is set to test at either service or SLO level, set severity to test
   if std.objectHas(config, 'maxAlertSeverity') && config.maxAlertSeverity == 'test' ||
-    std.objectHas(sliSpec, 'maxAlertSeverity') && sliSpec.maxAlertSeverity == 'test' then 'test'
+     std.objectHas(sliSpec, 'maxAlertSeverity') && sliSpec.maxAlertSeverity == 'test' then 'test'
   // If maxAlertSeverity is set to warning at either service or SLO level and window severity is critical, set severity to warning
   else if std.objectHas(config, 'maxAlertSeverity') && config.maxAlertSeverity == 'warning' ||
-    std.objectHas(sliSpec, 'maxAlertSeverity') && sliSpec.maxAlertSeverity == 'warning' &&
-    errorBudgetBurnWindow.severity == 'critical' then 'warning'
+          std.objectHas(sliSpec, 'maxAlertSeverity') && sliSpec.maxAlertSeverity == 'warning' &&
+          errorBudgetBurnWindow.severity == 'critical' then 'warning'
   // otherwise use the window severity
   else errorBudgetBurnWindow.severity;
 
@@ -31,7 +31,7 @@ local createAlertTitle(errorBudgetBurnWindow, config, sliSpec, sliKey, journeyKe
   '%(severity)s ALERT! %(environment)s - %(service)s %(slo)s - Percentage of time %(description)s' % {
     service: config.product,
     severity: std.asciiUpper(errorBudgetBurnWindow.severity),
-    environment: config.environment,
+    environment: if std.objectHas(config, 'generic') && config.generic then 'generic' else config.environment,
     description: sliSpec.title,
     factor: errorBudgetBurnWindow.factor,
     journey: journeyKey,
@@ -71,7 +71,7 @@ local getAlertPayloadConfig(alertName, severity, alertTitle, errorBudgetBurnWind
     exhaustionDays: std.parseInt(std.rstripChars(sliSpec.period, 'd')) / errorBudgetBurnWindow.factor,
     runbookUrl: if std.objectHas(config, 'runbookUrl') then config.runbookUrl else 'no runbook',
     configurationItem: if std.objectHas(sliSpec, 'configurationItem') then sliSpec.configurationItem else config.configurationItem,
-  } 
+  }
   +
   getObjectItems('config', config)
   +
@@ -106,7 +106,7 @@ local createBurnRateAlerts(config, sliSpec, sliKey, journeyKey) =
   {
     alerts+: [
       {
-        local alertName = std.join('_', [config.product, journeyKey, sliKey, sliSpec.sliType, 'ErrorBudgetBurn']),
+        local alertName = std.join('_', [std.strReplace(macConfig.macDashboardPrefix.uid, '-', '_'), config.product, journeyKey, sliKey, sliSpec.sliType, 'ErrorBudgetBurn']),
         local severity = getSeverity(errorBudgetBurnWindow, config, sliSpec),
         local alertTitle = createAlertTitle(errorBudgetBurnWindow, config, sliSpec, sliKey, journeyKey),
 
@@ -115,9 +115,9 @@ local createBurnRateAlerts(config, sliSpec, sliKey, journeyKey) =
 
         alert: alertName,
         expr: |||
-          %(recordingRuleShort)s{%(sliLabelSelectors)s, type="%(sliType)s"} > %(factor).5f
+          %(recordingRuleShort)s{%(sliLabelSelectors)s, sli_type="%(sliType)s"} > %(factor).5f
           and
-          %(recordingRuleLong)s{%(sliLabelSelectors)s, type="%(sliType)s"} > %(factor).5f
+          %(recordingRuleLong)s{%(sliLabelSelectors)s, sli_type="%(sliType)s"} > %(factor).5f
         ||| % {
           recordingRuleShort: macConfig.burnRateRuleNameTemplate % errorBudgetBurnWindow.short,
           recordingRuleLong: macConfig.burnRateRuleNameTemplate % errorBudgetBurnWindow.long,
@@ -132,17 +132,19 @@ local createBurnRateAlerts(config, sliSpec, sliKey, journeyKey) =
           factor: std.toString(errorBudgetBurnWindow.factor),
         } + alertPayload,
         annotations: {
-          dashboard: '%(grafanaUrl)s/d/%(journeyUid)s?var-environment=%(environment)s' % {
+          dashboard: '%(grafanaUrl)s/d/%(journeyUid)s%(environment)s' % {
             grafanaUrl: config.grafanaUrl,
-            journeyUid: std.join('-', [config.product, journeyKey, 'journey-view']),
-            environment: config.environment,
+            journeyUid: std.join('-', [macConfig.macDashboardPrefix.uid, config.product, journeyKey]),
+            environment: if std.objectHas(config, 'generic') && config.generic then '' else '?var-environment=%s' % config.environment,
           },
-          silenceurl: '%(alertmanagerUrl)s/#/silences/new?filter={alertname%%3D%%22%(alertName)s%%22}' % {
+          silenceurl: '%(alertmanagerUrl)s/#/silences/new?filter={alertname%%3D%%22%(alertName)s%%22, journey%%3D%%22%(journey)s%%22, service%%3D%%22%(service)s%%22}' % {
             alertmanagerUrl: config.alertmanagerUrl,
             alertName: alertName,
+            journey: journeyKey,
+            service: config.product,
           },
           description: createAlertPayloadString(alertPayload),
-          [if std.objectHas(config, 'runbookUrl') then 'runbookUrl']: 
+          [if std.objectHas(config, 'runbookUrl') then 'runbookUrl']:
             if std.objectHas(config, 'runbookUrl') then config.runbookUrl,
         },
         'for': '%(for)s' % errorBudgetBurnWindow,

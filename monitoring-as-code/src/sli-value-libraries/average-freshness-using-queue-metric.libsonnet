@@ -6,7 +6,7 @@
 // deletedMessages - Metric representing the number of deleted messages
 
 // Additional config:
-// latencyTarget in SLI spec
+// counterSecondsTarget in SLI spec
 // deadletterQueueName custom selector label in metric type config
 // deadletterQueueName custom selector in metric type config
 
@@ -27,19 +27,27 @@ local createSliValueRule(sliSpec, sliMetadata, config) =
   local metricConfig = sliValueLibraryFunctions.getMetricConfig(sliSpec);
   local ruleSelectors = sliValueLibraryFunctions.createRuleSelectors(metricConfig, sliSpec, config);
   local targetMetrics = sliValueLibraryFunctions.getTargetMetrics(metricConfig, sliSpec);
+  local selectorLabels = sliValueLibraryFunctions.getSelectorLabels(metricConfig);
 
   [
     {
       record: 'sli_value',
       expr: |||
-        sum(avg_over_time((%(oldestMessageMetric)s{%(selectors)s, %(queueSelector)s} > bool %(latencyTarget)s)[%(evalInterval)s:%(evalInterval)s]) or vector(0))
-        /
-        sum(count_over_time(%(oldestMessageMetric)s{%(selectors)s, %(queueSelector)s}[%(evalInterval)s]))
+        sum without (%(selectorLabels)s) (label_replace(label_replace(
+          (
+            sum by(%(selectorLabels)s) (avg_over_time((%(oldestMessageMetric)s{%(selectors)s, %(queueSelector)s} > bool %(counterSecondsTarget)s)[%(evalInterval)s:%(evalInterval)s]))
+            /
+            count by(%(selectorLabels)s) (count_over_time(%(oldestMessageMetric)s{%(selectors)s, %(queueSelector)s}[%(evalInterval)s]))
+          ),
+        "sli_environment", "$1", "%(environmentSelectorLabel)s", "(.*)"), "sli_product", "$1", "%(productSelectorLabel)s", "(.*)"))
       ||| % {
         oldestMessageMetric: targetMetrics.oldestMessage,
         queueSelector: '%s!~"%s"' % [metricConfig.customSelectorLabels.deadletterQueueName, metricConfig.customSelectors.deadletterQueueName],
-        latencyTarget: sliSpec.latencyTarget,
-        selectors: std.join(',', ruleSelectors),
+        counterSecondsTarget: sliSpec.counterSecondsTarget,
+        selectorLabels: std.join(', ', std.objectValues(selectorLabels)),
+        environmentSelectorLabel: selectorLabels.environment,
+        productSelectorLabel: selectorLabels.product,
+        selectors: std.join(', ', ruleSelectors),
         evalInterval: sliSpec.evalInterval,
       },
       labels: sliSpec.sliLabels + sliMetadata,
@@ -55,17 +63,17 @@ local createGraphPanel(sliSpec) =
   local targetMetrics = sliValueLibraryFunctions.getTargetMetrics(metricConfig, sliSpec);
 
   graphPanel.new(
-    title = '%s' % sliSpec.sliDescription,
-    datasource = 'prometheus',
-    description = |||
+    title='%s' % sliSpec.sliDescription,
+    datasource='prometheus',
+    description=|||
       * Sample interval is %(evalInterval)s
       * Selectors are %(selectors)s
     ||| % {
       selectors: std.strReplace(std.join(', ', sliValueLibraryFunctions.getSelectors(metricConfig, sliSpec)), '~', '\\~'),
       evalInterval: sliSpec.evalInterval,
     },
-    min = 0,
-    fill = 0,
+    min=0,
+    fill=0,
   ).addTarget(
     prometheus.target(
       |||
@@ -76,22 +84,22 @@ local createGraphPanel(sliSpec) =
         selectors: std.join(',', dashboardSelectors),
         evalInterval: sliSpec.evalInterval,
       },
-      legendFormat = 'avg number of msgs delivered',
+      legendFormat='avg number of msgs delivered',
     ),
   ).addTarget(
     prometheus.target(
       |||
-        sum(avg_over_time((%(oldestMessageMetric)s{%(selectors)s, %(queueSelector)s} > bool %(latencyTarget)s)[%(evalInterval)s:%(evalInterval)s]) or vector(0))
+        sum(avg_over_time((%(oldestMessageMetric)s{%(selectors)s, %(queueSelector)s} > bool %(counterSecondsTarget)s)[%(evalInterval)s:%(evalInterval)s]) or vector(0))
         /
-        sum(count_over_time(%(oldestMessageMetric)s{%(selectors)s, %(queueSelector)s}[%(evalInterval)s]))
+        count(count_over_time(%(oldestMessageMetric)s{%(selectors)s, %(queueSelector)s}[%(evalInterval)s]))
       ||| % {
         oldestMessageMetric: targetMetrics.oldestMessage,
         queueSelector: '%s!~"%s"' % [metricConfig.customSelectorLabels.deadletterQueueName, metricConfig.customSelectors.deadletterQueueName],
-        latencyTarget: sliSpec.latencyTarget,
+        counterSecondsTarget: sliSpec.counterSecondsTarget,
         selectors: std.join(',', dashboardSelectors),
         evalInterval: sliSpec.evalInterval,
       },
-      legendFormat='avg period where msg in standard queue > %s seconds' % sliSpec.latencyTarget,
+      legendFormat='avg period where msg in standard queue > %s seconds' % sliSpec.counterSecondsTarget,
     )
   ).addTarget(
     prometheus.target(

@@ -9,7 +9,9 @@ local macConfig = import '../mac-config.libsonnet';
 // @returns JSON containing metadata about the type and category of the SLI
 local createSliMetadata(sliSpec) =
   {
-    type: sliSpec.sliType,
+    sli_type: sliSpec.sliType,
+    metric_type: sliSpec.metricType,
+    metric_sli_type: sliSpec.metricType + ':' + sliSpec.sliType,
   };
 
 // Creates standard recording rules that are the same for all SLI types
@@ -21,9 +23,11 @@ local createStandardRecordingRules(sliSpec, sliMetadata) =
     {
       record: 'sli_percentage',
       expr: |||
-        (sum(sum_over_time((sli_value{%(ruleSliLabelSelectors)s, type="%(sliType)s"} %(comparison)s bool %(metricTarget)s)[30d:%(evalInterval)s]) 
-        or vector(0)) / sum(sum_over_time((sli_value{%(ruleSliLabelSelectors)s, type="%(sliType)s"} < bool Inf)[30d:%(evalInterval)s]) 
-        or vector(0))) >= 0
+        (
+          sum by(sli_environment, sli_product) (sum_over_time((sli_value{%(ruleSliLabelSelectors)s, sli_type="%(sliType)s"} %(comparison)s bool %(metricTarget)s)[30d:%(evalInterval)s]))
+          /
+          sum by(sli_environment, sli_product) (sum_over_time((sli_value{%(ruleSliLabelSelectors)s, sli_type="%(sliType)s"} < bool Inf)[30d:%(evalInterval)s]))
+        ) >= 0
       ||| % {
         ruleSliLabelSelectors: sliSpec.ruleSliLabelSelectors,
         sliType: sliSpec.sliType,
@@ -42,8 +46,10 @@ local createRecordingRules(sliSpec, config) =
   local sliMetadata = createSliMetadata(sliSpec);
 
   {
-    recording_rules+: std.flattenArrays([createStandardRecordingRules(sliSpec, sliMetadata),
-      macConfig.metricTypes[sliSpec.metricType].sliTypesConfig[sliSpec.sliType].library.createSliValueRule(sliSpec, sliMetadata, config)]),
+    recording_rules+: std.flattenArrays([
+      createStandardRecordingRules(sliSpec, sliMetadata),
+      macConfig.metricTypes[sliSpec.metricType].sliTypesConfig[sliSpec.sliType].library.createSliValueRule(sliSpec, sliMetadata, config),
+    ]),
   };
 
 // File exports

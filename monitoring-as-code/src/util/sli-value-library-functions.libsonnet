@@ -6,7 +6,7 @@ local macConfig = import '../mac-config.libsonnet';
 // Gets the config for the metric defined in SLI spec
 // @param sliSpec The spec for the SLI currently being processed
 // @returns Object containing config for a metric type
-local getMetricConfig(sliSpec) = 
+local getMetricConfig(sliSpec) =
   macConfig.metricTypes[sliSpec.metricType].metricTypeConfig;
 
 // Gets a selector using the selector label and selector value from mixin
@@ -23,7 +23,7 @@ local getSelector(selector, metricConfig, sliSpec) =
 // @returns List of strings for the selectors
 local getSelectors(metricConfig, sliSpec) =
   [
-    getSelector(selector, metricConfig, sliSpec),
+    getSelector(selector, metricConfig, sliSpec)
     for selector in std.objectFields(sliSpec.selectors)
     if selector != 'errorStatus'
   ];
@@ -36,7 +36,7 @@ local createDashboardSelectors(metricConfig, sliSpec) =
   std.flattenArrays([
     getSelectors(metricConfig, sliSpec)
     +
-    ['%s=~"$environment"' % metricConfig.selectorLabels.environment]
+    ['%s=~"$environment"' % metricConfig.selectorLabels.environment],
   ]);
 
 // Creates the list of selectors used for recording rules
@@ -48,7 +48,10 @@ local createRuleSelectors(metricConfig, sliSpec, config) =
   std.flattenArrays([
     getSelectors(metricConfig, sliSpec)
     +
-    ['%s=~"%s"' % [metricConfig.selectorLabels.environment, config.environment]]
+    ['%s=~"%s"' % [
+      metricConfig.selectorLabels.environment,
+      if std.objectHas(config, 'generic') && config.generic then '.*' else config.environment,
+    ]],
   ]);
 
 // Gets a custom selector using the selector label and selector value from config
@@ -68,6 +71,15 @@ local getTargetMetrics(metricConfig, sliSpec) =
     for targetMetricField in std.objectFields(macConfig.metricTypes[sliSpec.metricType].sliTypesConfig[sliSpec.sliType].targetMetrics)
   };
 
+// Gets the environment and product selector labels for a metric type
+// @param metricConfig Object containing config for a metric type
+// @returns List of the labels
+local getSelectorLabels(metricConfig) =
+  {
+    environment: metricConfig.selectorLabels.environment,
+    product: metricConfig.selectorLabels.product,
+  };
+
 // File exports
 {
   getMetricConfig(sliSpec): getMetricConfig(sliSpec),
@@ -77,4 +89,5 @@ local getTargetMetrics(metricConfig, sliSpec) =
   createRuleSelectors(metricConfig, sliSpec, config): createRuleSelectors(metricConfig, sliSpec, config),
   getCustomSelector(selector, metricConfig): getCustomSelector(selector, metricConfig),
   getTargetMetrics(metricConfig, sliSpec): getTargetMetrics(metricConfig, sliSpec),
+  getSelectorLabels(metricConfig): getSelectorLabels(metricConfig),
 }

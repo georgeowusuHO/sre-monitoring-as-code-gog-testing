@@ -23,23 +23,39 @@ local createSliValueRule(sliSpec, sliMetadata, config) =
   local metricConfig = sliValueLibraryFunctions.getMetricConfig(sliSpec);
   local ruleSelectors = sliValueLibraryFunctions.createRuleSelectors(metricConfig, sliSpec, config);
   local targetMetrics = sliValueLibraryFunctions.getTargetMetrics(metricConfig, sliSpec);
+  local selectorLabels = sliValueLibraryFunctions.getSelectorLabels(metricConfig);
 
   [
     {
       record: 'sli_value',
       expr: |||
-        (
-          sum(rate(%(code4xxMetric)s{%(selectors)s}[%(evalInterval)s]) or vector(0))
-          + 
-          sum(rate(%(code5xxMetric)s{%(selectors)s}[%(evalInterval)s]) or vector(0))
-        )
-        /
-        sum(rate(%(codeAllMetric)s{%(selectors)s}[%(evalInterval)s]))
+        sum without (%(selectorLabels)s) (label_replace(label_replace(
+          (
+            (
+              sum by(%(selectorLabels)s) (
+                rate(%(code4xxMetric)s{%(selectors)s}[%(evalInterval)s])
+                or
+                0 * %(codeAllMetric)s{%(selectors)s}
+              )
+              + 
+              sum by(%(selectorLabels)s) (
+                rate(%(code5xxMetric)s{%(selectors)s}[%(evalInterval)s])
+                or
+                0 * %(codeAllMetric)s{%(selectors)s}
+              )
+            )
+            /
+            sum by(%(selectorLabels)s) (rate(%(codeAllMetric)s{%(selectors)s}[%(evalInterval)s]))
+          ),
+        "sli_environment", "$1", "%(environmentSelectorLabel)s", "(.*)"), "sli_product", "$1", "%(productSelectorLabel)s", "(.*)"))
       ||| % {
         code4xxMetric: targetMetrics.code4xx,
         code5xxMetric: targetMetrics.code5xx,
         codeAllMetric: targetMetrics.codeAll,
-        selectors: std.join(',', ruleSelectors),
+        selectorLabels: std.join(', ', std.objectValues(selectorLabels)),
+        environmentSelectorLabel: selectorLabels.environment,
+        productSelectorLabel: selectorLabels.product,
+        selectors: std.join(', ', ruleSelectors),
         evalInterval: sliSpec.evalInterval,
       },
       labels: sliSpec.sliLabels + sliMetadata,
@@ -55,9 +71,9 @@ local createGraphPanel(sliSpec) =
   local targetMetrics = sliValueLibraryFunctions.getTargetMetrics(metricConfig, sliSpec);
 
   graphPanel.new(
-    title = '%s' % sliSpec.sliDescription,
-    datasource = 'prometheus',
-    description = |||
+    title='%s' % sliSpec.sliDescription,
+    datasource='prometheus',
+    description=|||
       * Sample interval is %(evalInterval)s
       * Selectors are %(selectors)s
       * Errors are 4xx and 5xx requests
@@ -65,10 +81,10 @@ local createGraphPanel(sliSpec) =
       selectors: std.strReplace(std.join(', ', sliValueLibraryFunctions.getSelectors(metricConfig, sliSpec)), '~', '\\~'),
       evalInterval: sliSpec.evalInterval,
     },
-    min = 0,
-    fill = 0,
-    formatY2 = 'percentunit',
-    thresholds = [
+    min=0,
+    fill=0,
+    formatY2='percentunit',
+    thresholds=[
       {
         value: sliSpec.metricTarget,
         colorMode: 'critical',
@@ -87,7 +103,7 @@ local createGraphPanel(sliSpec) =
         selectors: std.join(',', dashboardSelectors),
         evalInterval: sliSpec.evalInterval,
       },
-      legendFormat = 'requests per second',
+      legendFormat='requests per second',
     ),
   ).addTarget(
     prometheus.target(
@@ -101,7 +117,7 @@ local createGraphPanel(sliSpec) =
         selectors: std.join(',', dashboardSelectors),
         evalInterval: sliSpec.evalInterval,
       },
-      legendFormat = 'errors per second',
+      legendFormat='errors per second',
     )
   ).addTarget(
     prometheus.target(
@@ -120,7 +136,7 @@ local createGraphPanel(sliSpec) =
         selectors: std.join(',', dashboardSelectors),
         evalInterval: sliSpec.evalInterval,
       },
-      legendFormat = 'error rate',
+      legendFormat='error rate',
     )
   ).addSeriesOverride(
     {

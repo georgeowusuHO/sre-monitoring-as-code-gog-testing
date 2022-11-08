@@ -26,20 +26,28 @@ local createSliValueRule(sliSpec, sliMetadata, config) =
   local metricConfig = sliValueLibraryFunctions.getMetricConfig(sliSpec);
   local ruleSelectors = sliValueLibraryFunctions.createRuleSelectors(metricConfig, sliSpec, config);
   local targetMetrics = sliValueLibraryFunctions.getTargetMetrics(metricConfig, sliSpec);
+  local selectorLabels = sliValueLibraryFunctions.getSelectorLabels(metricConfig);
 
   local cloudwatchPercentile = if sliSpec.latencyPercentile == 0.9 then 'p90'
-    else if sliSpec.latencyPercentile == 0.95 then 'p95'
-    else if sliSpec.latencyPercentile == 0.99 then 'p99'
-    else error 'Invalid latency percentile for Cloudwatch conversion';
+  else if sliSpec.latencyPercentile == 0.95 then 'p95'
+  else if sliSpec.latencyPercentile == 0.99 then 'p99'
+  else error 'Invalid latency percentile for Cloudwatch conversion';
 
   [
     {
       record: 'sli_value',
       expr: |||
-        max(%(cloudwatchPercentileMetric)s{%(selectors)s})
+        sum without (%(selectorLabels)s) (label_replace(label_replace(
+          (
+            max by(%(selectorLabels)s) (%(cloudwatchPercentileMetric)s{%(selectors)s})
+          ),
+        "sli_environment", "$1", "%(environmentSelectorLabel)s", "(.*)"), "sli_product", "$1", "%(productSelectorLabel)s", "(.*)"))
       ||| % {
         cloudwatchPercentileMetric: targetMetrics[cloudwatchPercentile],
-        selectors: std.join(',', ruleSelectors),
+        selectorLabels: std.join(', ', std.objectValues(selectorLabels)),
+        environmentSelectorLabel: selectorLabels.environment,
+        productSelectorLabel: selectorLabels.product,
+        selectors: std.join(', ', ruleSelectors),
         evalInterval: sliSpec.evalInterval,
       },
       labels: sliSpec.sliLabels + sliMetadata,
@@ -55,18 +63,18 @@ local createGraphPanel(sliSpec) =
   local targetMetrics = sliValueLibraryFunctions.getTargetMetrics(metricConfig, sliSpec);
 
   graphPanel.new(
-    title = '%s' % sliSpec.sliDescription,
-    datasource = 'prometheus',
-    description = |||
+    title='%s' % sliSpec.sliDescription,
+    datasource='prometheus',
+    description=|||
       * Sample interval is %(evalInterval)s
       * Selectors are %(selectors)s
     ||| % {
       selectors: std.strReplace(std.join(', ', sliValueLibraryFunctions.getSelectors(metricConfig, sliSpec)), '~', '\\~'),
       evalInterval: sliSpec.evalInterval,
     },
-    min = 0,
-    format = 's',
-    thresholds = [
+    min=0,
+    format='s',
+    thresholds=[
       {
         value: sliSpec.metricTarget,
         colorMode: 'critical',
@@ -84,7 +92,7 @@ local createGraphPanel(sliSpec) =
         selectors: std.join(',', dashboardSelectors),
         evalInterval: sliSpec.evalInterval,
       },
-      legendFormat = 'average latency',
+      legendFormat='average latency',
     ),
   ).addTarget(
     prometheus.target(
@@ -95,7 +103,7 @@ local createGraphPanel(sliSpec) =
         selectors: std.join(',', dashboardSelectors),
         evalInterval: sliSpec.evalInterval,
       },
-      legendFormat = 'max p90 latency',
+      legendFormat='max p90 latency',
     ),
   ).addTarget(
     prometheus.target(
@@ -104,7 +112,7 @@ local createGraphPanel(sliSpec) =
         selectors: std.join(',', dashboardSelectors),
         evalInterval: sliSpec.evalInterval,
       },
-      legendFormat = 'max p95 latency',
+      legendFormat='max p95 latency',
     ),
   ).addTarget(
     prometheus.target(
@@ -113,7 +121,7 @@ local createGraphPanel(sliSpec) =
         selectors: std.join(',', dashboardSelectors),
         evalInterval: sliSpec.evalInterval,
       },
-      legendFormat = 'max p99 latency',
+      legendFormat='max p99 latency',
     ),
   );
 

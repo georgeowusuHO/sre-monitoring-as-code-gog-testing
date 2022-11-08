@@ -6,6 +6,8 @@ local dashboardFunctions = import './lib/dashboard-functions.libsonnet';
 local sliElementFunctions = import './lib/sli-element-functions.libsonnet';
 local macConfig = import './mac-config.libsonnet';
 
+local sliTitleCharLimit = 17;
+
 // Gets a url depending on the type of account
 // @param urlType The type of url (Grafana or Alertmanager)
 // @param url The non prod url defined in config
@@ -25,12 +27,13 @@ local updateConfig(passedConfig) =
   local account = std.extVar('ACCOUNT');
   local macVersion = std.extVar('MAC_VERSION');
 
-  passedConfig + {
+  passedConfig {
     environment: environment,
     account: account,
     macVersion: macVersion,
     grafanaUrl: getUrl('grafana', passedConfig.grafanaUrl, account),
     alertmanagerUrl: getUrl('alertmanager', passedConfig.alertmanagerUrl, account),
+    templates: dashboardFunctions.createServiceTemplates(passedConfig),
   };
 
 // Updates the SLI spec list passed from mixin file by adding additional values
@@ -43,24 +46,32 @@ local updateSliSpecList(config, passedSliSpecList) =
       [sliKey]+: {
         sliLabels: {
           service: config.product,
-          slo: sliKey,
-          environment: config.environment,
+          sli: sliKey,
           journey: journeyKey,
           mac_version: config.macVersion,
+          metric_type: passedSliSpecList[journeyKey][sliKey].metricType,
         },
-        dashboardSliLabelSelectors: "service='%(service)s', slo='%(slo)s', environment='$environment',
-          journey='%(journey)s'" % {
+        dashboardSliLabelSelectors:
+          |||
+            service="%(service)s", sli="%(sli)s", journey="%(journey)s", metric_type="%(metricType)s",
+            sli_environment=~"$environment"%(productSelector)s
+          ||| % {
             service: config.product,
-            slo: sliKey,
-            environment: config.environment,
+            sli: sliKey,
             journey: journeyKey,
+            productSelector: if std.objectHas(config, 'generic') && config.generic then ', sli_product=~"$product"' else '',
+            metricType: passedSliSpecList[journeyKey][sliKey].metricType,
           },
-        ruleSliLabelSelectors: "service='%(service)s', slo='%(slo)s', environment='%(environment)s',
-          journey='%(journey)s'" % {
+        ruleSliLabelSelectors:
+          |||
+            service="%(service)s", sli="%(sli)s", journey="%(journey)s", metric_type="%(metricType)s",
+            sli_environment=~"%(environment)s"
+          ||| % {
             service: config.product,
-            slo: sliKey,
-            environment: config.environment,
+            sli: sliKey,
             journey: journeyKey,
+            environment: if std.objectHas(config, 'generic') && config.generic then '.*' else config.environment,
+            metricType: passedSliSpecList[journeyKey][sliKey].metricType,
           },
       }
       for sliKey in std.objectFields(passedSliSpecList[journeyKey])
@@ -68,15 +79,25 @@ local updateSliSpecList(config, passedSliSpecList) =
     for journeyKey in std.objectFields(passedSliSpecList)
   };
 
-// Adds the current SLI type and metric target to the SLI spec
+// Adds the current SLI type, metric target, counter seconds target and latency percentile to the SLI spec.
 // @param sliType The current SLI type
 // @param sliSpec The spec for the SLI having its elements created
-// @returns The SLI spec object but with updated SLI type
+// @returns The SLI spec object but with updated SLI type and supplementary target and percentile metadata.
 local updateSliSpec(sliType, sliSpec) =
   sliSpec
-  +
   {
-    metricTarget: sliSpec.sliTypes[sliType],
+    // Metric target combines interval targets and histogram seconds targets. These targets are not applied within sli_value expressions and can be used to build standard elements
+    metricTarget:
+      if std.objectHas(sliSpec.sliTypes[sliType], 'histogramSecondsTarget')
+      then sliSpec.sliTypes[sliType].histogramSecondsTarget
+      else
+        if std.objectHas(sliSpec.sliTypes[sliType], 'intervalTarget')
+        then (100 - sliSpec.sliTypes[sliType].intervalTarget) / 100
+        else (100 - sliSpec.sloTarget) / 100,
+
+    // CounterSecondsTarget is applied within sli_value expressions and as such does not used for standard elements
+    counterSecondsTarget: sliSpec.sliTypes[sliType].counterSecondsTarget,
+    latencyPercentile: (sliSpec.sliTypes[sliType].percentile / 100),
     sliType: sliType,
   };
 
@@ -89,17 +110,22 @@ local updateSliSpec(sliType, sliSpec) =
 // @param journeyKey The key of the journey containing the SLI having rules generated
 // @returns The SLI with standard elements
 local createSli(sliType, config, passedSliSpec, sliKey, journeyKey) =
-  local sliSpec = updateSliSpec(sliType, passedSliSpec);
+  if journeyKey == config.product then
+    error 'Invalid Journey name [%s]. Journey name cannot match Product name [%s].' % [journeyKey, config.product]
+  else if std.length(passedSliSpec.title) > sliTitleCharLimit then
+    error 'SLI Title [%s] with [%s] characters is greater than recommended length of [%s].' % [passedSliSpec.title, std.length(passedSliSpec.title), sliTitleCharLimit]
+  else
+    local sliSpec = updateSliSpec(sliType, passedSliSpec);
 
-  if std.objectHas(macConfig.metricTypes, sliSpec.metricType) then
-    if std.objectHas(macConfig.metricTypes[sliSpec.metricType].sliTypesConfig, sliType) then
-      sliElementFunctions.createRecordingRules(sliSpec, config) +
-      sliElementFunctions.createSliStandardElements(sliKey, sliSpec) +
-      dashboardFunctions.createDashboardStandardElements(sliKey, journeyKey, sliSpec, config) +
-      alertFunctions.createBurnRateRules(sliSpec) +
-      alertFunctions.createBurnRateAlerts(config, sliSpec, sliKey, journeyKey)
-    else error 'Metric type %s does not have SLI type %s' % [sliSpec.metricType, sliType]
-  else error 'Undefined metric type %s' % sliSpec.metricType;
+    if std.objectHas(macConfig.metricTypes, sliSpec.metricType) then
+      if std.objectHas(macConfig.metricTypes[sliSpec.metricType].sliTypesConfig, sliType) then
+        sliElementFunctions.createRecordingRules(sliSpec, config) +
+        sliElementFunctions.createSliStandardElements(sliKey, sliSpec) +
+        dashboardFunctions.createDashboardStandardElements(sliKey, journeyKey, sliSpec, config) +
+        alertFunctions.createBurnRateRules(sliSpec) +
+        alertFunctions.createBurnRateAlerts(config, sliSpec, sliKey, journeyKey)
+      else error 'Metric type %s does not have SLI type %s' % [sliSpec.metricType, sliType]
+    else error 'Undefined metric type %s' % sliSpec.metricType;
 
 // Creates a list of all the SLIs in a service with their standard dashboard elements, unique
 // dashboard elements, recording rules, alerting rules and alerts
@@ -128,8 +154,8 @@ local createLinks(config) =
       asDropdown: false,
       icon: 'dashboard',
       includeVars: true,
-      tags: ['summary-view'],
-      title: 'summary-view',
+      tags: ['overview'],
+      title: 'Overview',
       type: 'dashboards',
     },
     {
@@ -165,7 +191,10 @@ local createLinks(config) =
 local createPrometheusRules(config, sliList) =
   {
     groups+: [{
-      name: config.product + '_' + config.environment + '_recordingrules',
+      name: '%s%srecordingrules' % [
+        config.product,
+        if std.objectHas(config, 'generic') && config.generic then '_' else '_%s_' % config.environment,
+      ],
       rules: std.flattenArrays([
         sli.recording_rules
         for journeyKey in std.objectFields(sliList)
@@ -182,7 +211,10 @@ local createPrometheusRules(config, sliList) =
 local createPrometheusAlerts(config, sliList) =
   {
     groups+: [{
-      name: config.product + '_' + config.environment + '_alertrules',
+      name: '%s%salertrules' % [
+        config.product,
+        if std.objectHas(config, 'generic') && config.generic then '_' else '_%s_' % config.environment,
+      ],
       rules: std.flattenArrays([
         sli.alerts
         for journeyKey in std.objectFields(sliList)
@@ -209,8 +241,8 @@ local buildMixin(passedConfig, passedSliSpecList) =
   {
     grafanaDashboardFolder: config.product,
     grafanaDashboards+: dashboardFunctions.createJourneyDashboards(config, sliList, links) +
-      dashboardFunctions.createProductDashboard(config, sliList, links) +
-      dashboardFunctions.createDetailDashboards(config, links, sliSpecList),
+                        dashboardFunctions.createProductDashboard(config, sliList, links) +
+                        dashboardFunctions.createDetailDashboards(config, links, sliSpecList),
 
     prometheusRules+: createPrometheusRules(config, sliList),
     prometheusAlerts+: createPrometheusAlerts(config, sliList),

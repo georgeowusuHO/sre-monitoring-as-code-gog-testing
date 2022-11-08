@@ -224,10 +224,11 @@ services:
             - $HOME/.aws/credentials:/exporter/.aws/credentials
         entrypoint: /config/start.sh
         ports:
-            - 5003:5003
+            - 5000:5000
         environment:
             - AWS_PROFILE
             - AWS_SHARED_CREDENTIALS_FILE=/exporter/.aws/credentials
+            - AWS_ENDPOINT_URL=http://host.docker.internal:4566
         env_file:
             - global.env
         restart: on-failure:5

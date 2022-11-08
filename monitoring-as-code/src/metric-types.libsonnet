@@ -3,7 +3,7 @@
 // File exports
 // The different types of metrics and their config
 {
-  'http_server_requests_seconds': {
+  http_server_requests_seconds: {
     metricTypeConfig: {
       selectorLabels: {
         environment: 'namespace',
@@ -54,7 +54,7 @@
       },
     },
   },
-  'grafana_http_request_duration_seconds': {
+  grafana_http_request_duration_seconds: {
     metricTypeConfig: {
       selectorLabels: {
         environment: 'namespace',
@@ -64,6 +64,8 @@
       },
       metrics: {
         count: 'grafana_http_request_duration_seconds_count',
+        sum: 'grafana_http_request_duration_seconds_sum',
+        bucket: 'grafana_http_request_duration_seconds_bucket',
       },
     },
     sliTypesConfig: {
@@ -74,16 +76,26 @@
           target: 'count',
         },
       },
+      latency: {
+        library: (import 'sli-value-libraries/histogram-quantile-latency.libsonnet'),
+        description: 'Request latency for %(sliDescription)s should be below %(metricTarget)0.1fs for the %(latencyPercentile)0.0fth percentile',
+        targetMetrics: {
+          bucket: 'bucket',
+          sum: 'sum',
+          count: 'count',
+        },
+      },
     },
     detailDashboardConfig: {
       standardTemplates: ['resource', 'errorStatus'],
-      elements: ['httpRequestsAvailability'],
+      elements: ['httpRequestsAvailability', 'httpRequestsLatency'],
       targetMetrics: {
         requestCount: 'count',
+        requestBucket: 'bucket',
       },
     },
   },
-  'http_requests_total': {
+  http_requests_total: {
     metricTypeConfig: {
       selectorLabels: {
         environment: 'namespace',
@@ -112,7 +124,7 @@
       },
     },
   },
-  'http_request_duration_seconds': {
+  http_request_duration_seconds: {
     metricTypeConfig: {
       selectorLabels: {
         environment: 'namespace',
@@ -144,7 +156,7 @@
       },
     },
   },
-  'nginx_ingress_controller_requests': {
+  nginx_ingress_controller_requests: {
     metricTypeConfig: {
       selectorLabels: {
         environment: 'exported_namespace',
@@ -172,7 +184,7 @@
       },
     },
   },
-  'nginx_ingress_controller_request_duration_seconds': {
+  nginx_ingress_controller_request_duration_seconds: {
     metricTypeConfig: {
       selectorLabels: {
         environment: 'exported_namespace',
@@ -212,7 +224,7 @@
       },
     },
   },
-  'aws_alb': {
+  aws_alb: {
     metricTypeConfig: {
       selectorLabels: {
         environment: 'Environment',
@@ -255,7 +267,7 @@
       targetMetrics: {},
     },
   },
-  'aws_sqs': {
+  aws_sqs: {
     metricTypeConfig: {
       selectorLabels: {
         environment: 'Environment',
@@ -269,11 +281,9 @@
       },
       customSelectorLabels: {
         deadletterQueueName: 'dimension_QueueName',
-        deadletterQueueType: 'queue_type',
       },
       customSelectors: {
         deadletterQueueName: '.+dlq.+',
-        deadletterQueueType: 'deadletter',
       },
     },
     sliTypesConfig: {
@@ -300,12 +310,12 @@
       targetMetrics: {
         oldestMessage: 'oldestMessage',
         sentMessages: 'messagesSent',
-        visibleMessages: 'messagesVisisble',
+        visibleMessages: 'messagesVisible',
         deletedMessages: 'messagesDeleted',
       },
     },
   },
-  'thanos_compact_group_compactions': {
+  thanos_compact_group_compactions: {
     metricTypeConfig: {
       selectorLabels: {
         environment: 'namespace',
@@ -332,7 +342,7 @@
       targetMetrics: {},
     },
   },
-  'up': {
+  up: {
     metricTypeConfig: {
       selectorLabels: {
         environment: 'namespace',
@@ -357,7 +367,7 @@
       targetMetrics: {},
     },
   },
-  'scrape_duration_seconds': {
+  scrape_duration_seconds: {
     metricTypeConfig: {
       selectorLabels: {
         environment: 'namespace',
@@ -382,7 +392,7 @@
       targetMetrics: {},
     },
   },
-  'aws_rds_read': {
+  aws_rds_read: {
     metricTypeConfig: {
       selectorLabels: {
         environment: 'Environment',
@@ -396,7 +406,7 @@
     },
     sliTypesConfig: {
       latency: {
-        library: (import 'sli-value-libraries/average-using-single-metric.libsonnet'),
+        library: (import 'sli-value-libraries/average-latency-using-seconds-target-metric.libsonnet'),
         description: 'The average latency of %(sliDescription)s should be %(comparison)s %(metricTarget)0.1f',
         targetMetrics: {
           target: 'averageLatency',
@@ -423,7 +433,7 @@
       targetMetrics: {},
     },
   },
-  'aws_rds_write': {
+  aws_rds_write: {
     metricTypeConfig: {
       selectorLabels: {
         environment: 'Environment',
@@ -437,7 +447,7 @@
     },
     sliTypesConfig: {
       latency: {
-        library: (import 'sli-value-libraries/average-using-single-metric.libsonnet'),
+        library: (import 'sli-value-libraries/average-latency-using-seconds-target-metric.libsonnet'),
         description: 'The average latency of %(sliDescription)s should be %(comparison)s %(metricTarget)0.1f',
         targetMetrics: {
           target: 'averageLatency',
@@ -464,7 +474,7 @@
       targetMetrics: {},
     },
   },
-  'aws_es': {
+  aws_es: {
     metricTypeConfig: {
       selectorLabels: {
         environment: 'Environment',
@@ -474,7 +484,7 @@
         averageLatency: 'aws_es_search_latency_average',
         sum4xx: 'aws_es_4xx_sum',
         sum5xx: 'aws_es_5xx_sum',
-        requestsSum: 'aws_es_open_search_requests_sum',
+        requestsSum: 'aws_es_elasticsearch_requests_sum',
       },
     },
     sliTypesConfig: {
@@ -488,7 +498,7 @@
         },
       },
       latency: {
-        library: (import 'sli-value-libraries/average-using-single-metric.libsonnet'),
+        library: (import 'sli-value-libraries/average-latency-using-seconds-target-metric.libsonnet'),
         description: 'The average latency of %(sliDescription)s should be %(comparison)s %(metricTarget)0.1f',
         targetMetrics: {
           target: 'averageLatency',
@@ -513,7 +523,7 @@
     },
     sliTypesConfig: {
       sliType: {
-        library: (import ''),
+        library: '',
         description: '',
         targetMetrics: {
 
@@ -524,7 +534,7 @@
       standardTemplates: [],
       elements: [],
       targetMetrics: {
-        
+
       },
     },
   },
